@@ -1,0 +1,234 @@
+<html>
+    <head>
+        <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+        <script type="text/javascript" src="assets/graphics.js"></script>
+
+        <script type="text/javascript" src="core/jquery-1.9.1.min.js"></script>
+        <script type="text/javascript" src="core/easing.js"></script>
+        <script type="text/javascript" src="core/constants.js"></script>
+        <script type="text/javascript" src="core/entitysystem.js"></script>
+        <script type="text/javascript" src="core/components.js"></script>        
+        <script type="text/javascript" src="core/systems.js"></script>
+        <script type="text/javascript" src="core/utils.js"></script>
+        <script type="text/javascript" src="core/resources.js"></script>
+        
+        <script type="text/javascript" src="cheddar/cheddar.js"></script>    
+        <script type="text/javascript">
+            boc.resources.GraphicsManager.load(bbq.assets.graphics);            
+        </script>    
+    </head>
+    <body>
+        <div id="mydiv">
+            <canvas id="mycanvas" width="800" height="600"></canvas>
+        </div>
+        <input id='pause' type="button" value="Pause"/>
+        <input id='run' type="button" value="Run"/>
+        <div id="output"></div>
+        <div id="thoughts"></div>
+        <div id="stand"></div>
+        <span>Tanginess:</span><input id='tanginess' type="range" min="0" max="100" step="1" value="50"/><span id="tangy">50</span><br />
+        <span>Sweetness:</span><input id='sweetness' type="range" min="0" max="100" step="1" value="50"/><span id="sweet">50</span><br />
+        <span>Coldness:</span><input id='coldness' type="range" min="0" max="100" step="1" value="50"/><span id="cold">50</span><br />
+        <span>Price:</span><input id='price' type="range" min="1" max="20" step="1" value="5"/><span id="dolla">$5</span><br />
+
+        <script type="text/javascript">
+            var tanginess = 50, sweetness = 50, coldness = 50, price = 5;
+            var lastFrame = window.navigator.userAgent.toLowerCase().indexOf('firefox') >= 0 ? +new Date : 0;
+            var lastTime = +new Date;
+            var stop = false, pause = false;
+
+            $('#tanginess').change(function () {
+                $('#tangy').text($(this).val());
+                tanginess = parseInt($(this).val());
+            });
+            $('#sweetness').change(function () {
+                $('#sweet').text($(this).val());
+                sweetness = parseInt($(this).val());
+            });
+            $('#coldness').change(function () {
+                $('#cold').text($(this).val());
+                coldness = parseInt($(this).val());
+            });
+            $('#price').change(function () {
+                $('#dolla').text('$' + $(this).val());
+                price = parseInt($(this).val());
+            });
+
+            $('#pause').click(function () {
+                if ($(this).attr('value') == 'Pause') {
+                    $(this).attr('value','Resume');
+                    pause = true;
+                } else {
+                    $(this).attr('value', 'Pause');
+                    pause = false;
+                }
+            });
+            var em = boc.core.Entity_internal.em();
+            chd._em = em;
+            boc.utils.setEntityManager(em);
+            
+            $('#run').click(function () {
+                em.clear();
+                $('#output').empty();
+                $('#thoughts').empty();
+                $('#stand').empty();
+                
+                $em($em.create('bg'))
+                    .ns('boc.components')
+                        .add('Spatial', { x: 0, y: 0, z: -1, width: $('#mycanvas').width(), height: $('#mycanvas').height() })
+                        .add('DrawableRect', { fillStyle : 'white' });
+
+                var lemonadeStand = $em.create('lemonadeStand');
+                $em(lemonadeStand)
+                    .ns('boc.components')
+                        .add('Spatial', { x: ($('#mycanvas')[0].width - 50) / 2, y: 100, width: 50, height: 50 })
+                        .add('DrawableSprite', { image: boc.resources.GraphicsManager.getImage('assets/Buildings/hut_yellow.png'), visible : true })
+                        .add('Transformable')
+                    .ns('chd')
+                        .add('CustomerGoodsProvider', {
+                            good: new chd.LemonadeDrink(tanginess, sweetness, coldness),
+                            pricePerGood: price,
+                            stock: 25,
+                            maxStock: 25,
+                            totalSales: 0,
+                            productionRate: 1.00,
+                            serviceRate: 0.10
+                        })
+                        .add('Thought', null);
+
+                $em(lemonadeStand).comp('Transformable').transforms.push(function (ent, context) {
+                    context.scale(2.0, 2.0);
+                    context.translate(-200, -60);                   
+                });
+
+                $em('Spatial').each(function (e, c) {
+                    console.log('id: ' + e + ' with ' + c.className());
+                    console.log($em(e).comp('DrawableSprite'));
+                });
+
+                var renderSystem = new boc.systems.RenderSystem(em, $('#mycanvas')[0]);
+                renderSystem.camera(
+                    new boc.utils.Camera({
+                        xmin: 0,
+                        xmax: $('#mycanvas')[0].width,
+                        ymin: 0,
+                        ymax: $('#mycanvas')[0].height
+                    })
+                );
+                var animationSystem = new boc.systems.AnimationSystem(em);
+                var mouseInputSystem = new boc.systems.MouseInputSystem(em, $('#mycanvas')[0]);
+                var lifespanSystem = new boc.systems.LifespanSystem(em);
+                var customerCreationSystem = new chd.CustomerCreationSystem(em,
+                    {
+                        customerFactory: new chd.TribeCustomerFactory({
+                            startPoint: { x: -25, y: ($('#mycanvas')[0].height - 25) / 2 },
+                            desire: function () {
+                                return Math.floor(Math.random() * 50) + 30;
+                            },
+                            speed: function () {
+                                return Math.floor(Math.random() * 300) + 100;
+                            },
+                            money: function () {
+                                var rng = Math.random();
+                                if (rng < 0.25) {
+                                    return Math.floor(Math.random() * 15) + 5;
+                                }
+                                else {
+                                    return Math.floor(Math.random() * 10) + 1;
+                                }
+                            },
+                            preference: function () {
+                                // this heavily favours cold drinks and medium sweet drinks
+                                return new chd.LemonadePreference(Math.floor(Math.random() * 100), Math.floor(Math.random() * 50) + 25, 90);
+                                //return new chd.LemonadePreference(90, 90, 90);
+                            }
+                        }),
+                        creationRate: 0.0035,
+                        maxCustomers: 100
+                    }
+                );
+                var evaluatorSystem = new chd.EvaluatorSystem(em);
+                var customerCleanupSystem = new chd.CustomerCleanupSystem(em, renderSystem.camera());
+                var daySystem = new chd.DaySystem(em, function () {
+                    $('#output').text('simulation stopped!');
+                    stop = true;
+                    var reportStr = '';
+                    var report = em.getAllComponents('Report')[0];
+                    var goodProvider = em.getAllComponents('CustomerGoodsProvider')[0];
+
+                    reportStr += '<div><span>Total Customers : </span><span>' + report.totalCustomers + '</span></div>'
+                    reportStr += '<div><span>-- "Too expensive!" : </span><span>' + report.tooExpensive + '</span></div>'
+                    reportStr += '<div><span>-- "Wait\'s too long!" : </span><span>' + report.waitTooLong + '</span></div>'
+                    reportStr += '<div><span>Customers Served: </span><span>' + report.totalServed + '</span></div>'
+                    reportStr += '<div><span>-- Very satisfied : </span><span>' + report.verySatisfied + '</span></div>'
+                    reportStr += '<div><span>-- Satisfied: </span><span>' + report.satisfied + '</span></div>'
+                    reportStr += '<div><span>-- Disappointed : </span><span>' + report.disappointed + '</span></div>'
+                    reportStr += '<div><span>-- Repulsed : </span><span>' + report.repulsed + '</span></div>'
+                    reportStr += '<div><span>Total Profit : $ </span><span>' + report.totalServed * goodProvider.pricePerGood + '</span></div>'
+
+
+                    $('#stand').html(reportStr);
+                });
+                var identifySystem = new boc.systems.IdentifySystem(em, renderSystem.camera());
+                var customerSystem = new chd.CustomerSystem(em, function (customer) {
+                    $('#thoughts').text(customer.name + ' : "' + customer.thoughts + '"');
+                });
+                var thoughtSystem = new chd.ThoughtSystem(em);
+                var weatherSystem = new chd.WeatherInfluenceSystem(em,
+                    {
+                        tickInterval: 25,
+                        desirePerTick: 0.5
+                    }
+                );
+                var serviceSystem = new chd.ServiceSystem(em, {
+                    tickInterval: 25
+                });
+                var satisfactionSystem = new chd.SatisfactionSytem(em);
+                var spriteSystem = new boc.systems.SpriteAnimationSystem(em);
+                var productionSystem = new chd.ProductionSystem(em, { tickInterval: 25 });
+
+                $('#pause').attr('value', 'Pause');
+                
+                pause = false;
+                stop = false;
+                var animFrameHandle = null;
+                //if (lastTime != 0) {
+                    var dt = +new Date - lastTime;
+                    lastFrame += dt;
+                //}
+                function loop(now) {
+                    if (stop) {
+                        cancelAnimationFrame(animFrameHandle);
+                        lastTime = +new Date;
+                        return;
+                    }
+                    animFrameHandle = requestAnimFrame(loop);
+                    var frameTime = now - lastFrame;
+                    mouseInputSystem.processTick(frameTime);
+                    identifySystem.processTick(frameTime);
+                    customerSystem.processTick(frameTime);
+                    thoughtSystem.processTick(frameTime);
+                    if (!pause) {
+                        animationSystem.processTick(frameTime);
+                        spriteSystem.processTick(frameTime);
+                        customerCreationSystem.processTick(frameTime);
+                        weatherSystem.processTick(frameTime);
+                        evaluatorSystem.processTick(frameTime);
+                        serviceSystem.processTick(frameTime);
+                        productionSystem.processTick(frameTime);
+                        satisfactionSystem.processTick(frameTime);
+                        renderSystem.processTick(frameTime);
+                        customerCleanupSystem.processTick(frameTime);
+                        daySystem.processTick(frameTime);
+                    }
+                    lifespanSystem.processTick(frameTime);
+                    lastFrame = now;
+                } // loop            	
+
+                loop(lastFrame);
+                $('#output').text('simulation started!');
+
+            }); // run                       		
+        </script>
+    </body>
+</html>
